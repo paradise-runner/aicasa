@@ -4,6 +4,8 @@
 Git repositories. Its output uses a pastel blue, pink, and yellow terminal
 palette when stdout is interactive.
 
+<img width="200" alt="casa" src="logo.png" />
+
 ## Install
 
 ```sh
