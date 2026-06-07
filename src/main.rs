@@ -524,7 +524,13 @@ fn create_project(
     ));
     let mut metadata = WorkspaceMetadata::empty(project);
     write_workspace_metadata(&project_path, &metadata)?;
-    clone_repositories(&project_path, repositories, &mut metadata, printer)?;
+    clone_repositories(
+        &project_path,
+        repositories,
+        Some(project),
+        &mut metadata,
+        printer,
+    )?;
     Ok(project_path)
 }
 
@@ -541,7 +547,7 @@ fn add_repositories(
     }
     let (mut metadata, _) = load_or_infer_metadata(project_path)?;
     ensure_unique_destinations(project_path, repositories)?;
-    clone_repositories(project_path, repositories, &mut metadata, printer)
+    clone_repositories(project_path, repositories, None, &mut metadata, printer)
 }
 
 fn ensure_unique_destinations(project_path: &Path, repositories: &[Repository]) -> Result<()> {
@@ -567,6 +573,7 @@ fn ensure_unique_destinations(project_path: &Path, repositories: &[Repository]) 
 fn clone_repositories(
     project_path: &Path,
     repositories: &[Repository],
+    branch_name: Option<&str>,
     metadata: &mut WorkspaceMetadata,
     printer: &Printer,
 ) -> Result<()> {
@@ -593,6 +600,14 @@ fn clone_repositories(
                 project_path.display()
             ));
         }
+        if let Some(branch_name) = branch_name {
+            create_and_checkout_branch(&destination, branch_name).map_err(|error| {
+                format!(
+                    "cloned `{}` but could not create branch `{branch_name}`: {error}",
+                    repository.source
+                )
+            })?;
+        }
         let stored_repository = StoredRepository::from(repository);
         if let Some(stored) = metadata
             .repositories
@@ -611,6 +626,34 @@ fn clone_repositories(
         })?;
     }
     Ok(())
+}
+
+fn create_and_checkout_branch(repository_path: &Path, branch_name: &str) -> Result<()> {
+    let switch_status = Command::new("git")
+        .arg("-C")
+        .arg(repository_path)
+        .arg("switch")
+        .arg("-c")
+        .arg(branch_name)
+        .status()
+        .map_err(|error| format!("could not execute `git switch -c`: {error}"))?;
+    if switch_status.success() {
+        return Ok(());
+    }
+
+    let orphan_status = Command::new("git")
+        .arg("-C")
+        .arg(repository_path)
+        .arg("checkout")
+        .arg("--orphan")
+        .arg(branch_name)
+        .status()
+        .map_err(|error| format!("could not execute `git checkout --orphan`: {error}"))?;
+    if orphan_status.success() {
+        Ok(())
+    } else {
+        Err("git could not create the requested branch.".to_string())
+    }
 }
 
 fn find_add_target<'a>(root: &Path, args: &'a [String]) -> Result<(PathBuf, &'a [String])> {
@@ -1013,6 +1056,15 @@ impl Theme {
 mod tests {
     use super::*;
 
+    fn git_env() -> [(&'static str, &'static str); 4] {
+        [
+            ("GIT_AUTHOR_NAME", "aicasa"),
+            ("GIT_AUTHOR_EMAIL", "aicasa@example.com"),
+            ("GIT_COMMITTER_NAME", "aicasa"),
+            ("GIT_COMMITTER_EMAIL", "aicasa@example.com"),
+        ]
+    }
+
     fn temporary_directory(name: &str) -> PathBuf {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1041,6 +1093,96 @@ mod tests {
         Repository {
             source: source.display().to_string(),
             directory: name.to_string(),
+        }
+    }
+
+    fn local_seeded_bare_repository(parent: &Path, name: &str) -> Repository {
+        let source = parent.join(format!("{name}.git"));
+        let working = parent.join(format!("{name}-working"));
+        assert!(
+            Command::new("git")
+                .arg("init")
+                .arg("-q")
+                .arg(&working)
+                .status()
+                .unwrap()
+                .success()
+        );
+        fs::write(working.join("README.md"), format!("#{name}\n")).unwrap();
+        let mut add = Command::new("git");
+        add.arg("-C").arg(&working).arg("add").arg("README.md");
+        for (key, value) in git_env() {
+            add.env(key, value);
+        }
+        assert!(add.status().unwrap().success());
+        let mut commit = Command::new("git");
+        commit
+            .arg("-C")
+            .arg(&working)
+            .arg("commit")
+            .arg("-q")
+            .arg("-m")
+            .arg("initial commit");
+        for (key, value) in git_env() {
+            commit.env(key, value);
+        }
+        assert!(commit.status().unwrap().success());
+        assert!(
+            Command::new("git")
+                .arg("init")
+                .arg("--bare")
+                .arg("-q")
+                .arg(&source)
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(
+            Command::new("git")
+                .arg("-C")
+                .arg(&working)
+                .arg("remote")
+                .arg("add")
+                .arg("origin")
+                .arg(&source)
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(
+            Command::new("git")
+                .arg("-C")
+                .arg(&working)
+                .arg("push")
+                .arg("-u")
+                .arg("origin")
+                .arg("HEAD")
+                .status()
+                .unwrap()
+                .success()
+        );
+        Repository {
+            source: source.display().to_string(),
+            directory: name.to_string(),
+        }
+    }
+
+    fn current_branch_name(repository_path: &Path) -> Result<Option<String>> {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(repository_path)
+            .arg("branch")
+            .arg("--show-current")
+            .output()
+            .map_err(|error| format!("could not read current branch: {error}"))?;
+        if !output.status.success() {
+            return Err("git could not determine the current branch.".to_string());
+        }
+        let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if branch.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(branch))
         }
     }
 
@@ -1105,14 +1247,22 @@ mod tests {
         let trash = temporary.join("trash");
         let sources = temporary.join("sources");
         fs::create_dir_all(&sources).unwrap();
-        let first = local_bare_repository(&sources, "toast");
+        let first = local_seeded_bare_repository(&sources, "toast");
         let second = local_bare_repository(&sources, "kaleidoscope");
         let printer = Printer::new(Destination::Silent);
 
         let project = create_project(&root, "demo", &[first], &printer).unwrap();
         assert!(project.join("toast/.git").is_dir());
+        assert_eq!(
+            current_branch_name(&project.join("toast")).unwrap(),
+            Some("demo".into())
+        );
         add_repositories(&project, &[second], &printer).unwrap();
         assert!(project.join("kaleidoscope/.git").is_dir());
+        assert_ne!(
+            current_branch_name(&project.join("kaleidoscope")).unwrap(),
+            Some("demo".into())
+        );
         let metadata = read_workspace_metadata(&project).unwrap().unwrap();
         assert_eq!(metadata.schema_version, METADATA_SCHEMA_VERSION);
         assert_eq!(metadata.name, "demo");
@@ -1166,6 +1316,25 @@ mod tests {
         move_to_trash(&root, &trash, &["demo".to_string()], &printer).unwrap();
         assert!(!project.exists());
         assert!(trash.join("demo/toast/.git").is_dir());
+        fs::remove_dir_all(&temporary).unwrap();
+    }
+
+    #[test]
+    fn creates_project_branch_even_for_empty_remote_repositories() {
+        let temporary = temporary_directory("empty-remote-branch");
+        let root = temporary.join("workspaces");
+        let sources = temporary.join("sources");
+        fs::create_dir_all(&sources).unwrap();
+        let empty = local_bare_repository(&sources, "toast");
+
+        let project =
+            create_project(&root, "demo", &[empty], &Printer::new(Destination::Silent)).unwrap();
+
+        assert_eq!(
+            current_branch_name(&project.join("toast")).unwrap(),
+            Some("demo".into())
+        );
+
         fs::remove_dir_all(&temporary).unwrap();
     }
 

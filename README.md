@@ -41,6 +41,9 @@ shorthand or full Git clone URLs:
 aic new new-project paradise-runner/toast,paradise-runner/kaleidoscope
 ```
 
+Each repository cloned by `aic new` gets a local branch named after the
+workspace, created and checked out immediately after cloning.
+
 With the shell hook installed, that command ends in
 `~/.aicasa/new-project`. Without it, `aicasa` prints a `cd` command for entering the
 workspace.
