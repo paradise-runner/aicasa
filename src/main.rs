@@ -12,8 +12,7 @@ type Result<T> = std::result::Result<T, String>;
 const BLUE: &str = "141;211;247";
 const PINK: &str = "245;194;231";
 const YELLOW: &str = "249;226;175";
-const PROGRAM_NAME: &str = "aicasa";
-const DEFAULT_ALIAS: &str = "aic";
+const PROGRAM_NAME: &str = "casa";
 const WORKSPACE_ENV_VAR: &str = "AICASA_ROOT";
 const TRASH_ENV_VAR: &str = "AICASA_TRASH_DIR";
 const WORKSPACE_DIRECTORY: &str = ".aicasa";
@@ -93,7 +92,6 @@ fn run(args: &[String]) -> Result<()> {
         "rm" => command_rm(&args[1..]),
         "ls" => command_ls(&args[1..]),
         "inspect" => command_inspect(&args[1..]),
-        "shell-init" => command_shell_init(&args[1..]),
         "help" | "--help" | "-h" => {
             print_help();
             Ok(())
@@ -103,7 +101,7 @@ fn run(args: &[String]) -> Result<()> {
             Ok(())
         }
         unknown => Err(format!(
-            "unknown command `{unknown}`. Run `{DEFAULT_ALIAS} --help` for usage."
+            "unknown command `{unknown}`. Run `{PROGRAM_NAME} --help` for usage."
         )),
     }
 }
@@ -113,7 +111,7 @@ fn command_new(args: &[String]) -> Result<()> {
     let print_path = take_flag(&mut args, "--print-path");
     if args.len() < 2 {
         return Err(format!(
-            "usage: {DEFAULT_ALIAS} new <project> <owner/repo[,owner/repo...] | git-url...>"
+            "usage: {PROGRAM_NAME} new <project> <owner/repo[,owner/repo...] | git-url...>"
         ));
     }
 
@@ -142,15 +140,6 @@ fn command_new(args: &[String]) -> Result<()> {
                 .theme
                 .blue(&format!("cd {}", shell_quote(&path.display().to_string())))
         ));
-        printer.status(format!(
-            "Enable automatic directory changes with: {} (Zsh/Bash) or {} (Fish)",
-            printer
-                .theme
-                .pink(&format!("eval \"$({PROGRAM_NAME} shell-init zsh)\"")),
-            printer
-                .theme
-                .pink(&format!("{PROGRAM_NAME} shell-init fish | source"))
-        ));
     }
 
     Ok(())
@@ -159,7 +148,7 @@ fn command_new(args: &[String]) -> Result<()> {
 fn command_add(args: &[String]) -> Result<()> {
     if args.is_empty() {
         return Err(format!(
-            "usage: {DEFAULT_ALIAS} add [<project>] <owner/repo[,owner/repo...] | git-url...>"
+            "usage: {PROGRAM_NAME} add [<project>] <owner/repo[,owner/repo...] | git-url...>"
         ));
     }
 
@@ -178,7 +167,7 @@ fn command_add(args: &[String]) -> Result<()> {
 
 fn command_rm(args: &[String]) -> Result<()> {
     if args.is_empty() {
-        return Err(format!("usage: {DEFAULT_ALIAS} rm <project> [project...]"));
+        return Err(format!("usage: {PROGRAM_NAME} rm <project> [project...]"));
     }
 
     for project in args {
@@ -194,19 +183,19 @@ fn command_rm(args: &[String]) -> Result<()> {
 
 fn command_ls(args: &[String]) -> Result<()> {
     if !args.is_empty() {
-        return Err(format!("usage: {DEFAULT_ALIAS} ls"));
+        return Err(format!("usage: {PROGRAM_NAME} ls"));
     }
 
     let root = workspace_root()?;
     let entries = list_projects(&root)?;
     let theme = Theme::stdout();
     if entries.is_empty() {
-        println!(
-            "{}",
-            theme.yellow(&format!(
-                "No workspaces found. Create one with `{DEFAULT_ALIAS} new <project> <owner/repo>`."
-            ))
-        );
+            println!(
+                "{}",
+                theme.yellow(&format!(
+                    "No workspaces found. Create one with `{PROGRAM_NAME} new <project> <owner/repo>`."
+                ))
+            );
         return Ok(());
     }
 
@@ -234,7 +223,7 @@ fn command_inspect(args: &[String]) -> Result<()> {
     let project_path = match args {
         [] => current_workspace(&root).ok_or_else(|| {
             format!(
-                "outside an {PROGRAM_NAME} workspace, specify the target: `{DEFAULT_ALIAS} inspect <project>`."
+                "outside an {PROGRAM_NAME} workspace, specify the target: `{PROGRAM_NAME} inspect <project>`."
             )
         })?,
         [project] => {
@@ -245,7 +234,7 @@ fn command_inspect(args: &[String]) -> Result<()> {
             }
             project_path
         }
-        _ => return Err(format!("usage: {DEFAULT_ALIAS} inspect [<project>]")),
+        _ => return Err(format!("usage: {PROGRAM_NAME} inspect [<project>]")),
     };
 
     let inspection = inspect_workspace(&project_path)?;
@@ -257,91 +246,42 @@ fn command_inspect(args: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn command_shell_init(args: &[String]) -> Result<()> {
-    let shell = match args {
-        [] => "zsh",
-        [shell] => shell.as_str(),
-        _ => return Err(format!("usage: {PROGRAM_NAME} shell-init [zsh|bash|fish]")),
-    };
-
-    print!("{}", shell_init_script(shell)?);
-    Ok(())
-}
-
-fn shell_init_script(shell: &str) -> Result<&'static str> {
-    match shell {
-        "zsh" | "bash" => Ok(r#"aic() {
-    if [[ "${1-}" == "new" ]]; then
-        local __aicasa_path
-        __aicasa_path="$(command aicasa "$@" --print-path)" || return $?
-        builtin cd -- "$__aicasa_path"
-    else
-        command aicasa "$@"
-    fi
-}
-"#),
-        "fish" => Ok(r#"function aic
-    if test (count $argv) -gt 0; and test "$argv[1]" = new
-        set -l __aicasa_path (command aicasa $argv --print-path)
-        set -l __aicasa_status $status
-        if test $__aicasa_status -ne 0
-            return $__aicasa_status
-        end
-        builtin cd -- "$__aicasa_path"
-    else
-        command aicasa $argv
-    end
-end
-"#),
-        _ => Err(format!(
-            "unsupported shell `{shell}`; expected `zsh`, `bash`, or `fish`."
-        )),
-    }
-}
-
 fn print_help() {
     let theme = Theme::stdout();
     print_banner(&theme);
-    println!("{}", theme.pink("aicasa - AI-assisted project workspaces"));
+    println!("{}", theme.pink("casa - AI-assisted project workspaces"));
     println!();
     println!("{}", theme.yellow("Usage"));
     print_help_line(
         &theme,
-        "aic new <project> <repos>",
+        "casa new <project> <repos>",
         "Create a workspace and clone repositories",
     );
     print_help_line(
         &theme,
-        "aic add [project] <repos>",
+        "casa add [project] <repos>",
         "Clone more repositories into a workspace",
     );
     print_help_line(
         &theme,
-        "aic rm <project> [project...]",
+        "casa rm <project> [project...]",
         "Move workspaces to the Trash",
     );
     print_help_line(
         &theme,
-        "aic ls",
+        "casa ls",
         &format!("List workspaces in ~/{WORKSPACE_DIRECTORY}"),
     );
     print_help_line(
         &theme,
-        "aic inspect [project]",
+        "casa inspect [project]",
         "Print machine-readable workspace metadata",
-    );
-    print_help_line(
-        &theme,
-        "aicasa shell-init [zsh|bash|fish]",
-        "Install the default `aic` shell wrapper",
     );
     println!();
     println!("{}", theme.yellow("Examples"));
-    println!("  aic new new-project paradise-runner/toast,paradise-runner/kaleidoscope");
-    println!("  aic add new-project paradise-runner/another-repo");
-    println!("  aic inspect new-project");
-    println!("  eval \"$(aicasa shell-init zsh)\"");
-    println!("  aicasa shell-init fish | source");
+    println!("  casa new new-project paradise-runner/toast,paradise-runner/kaleidoscope");
+    println!("  casa add new-project paradise-runner/another-repo");
+    println!("  casa inspect new-project");
 }
 
 fn print_help_line(theme: &Theme, invocation: &str, description: &str) {
@@ -670,7 +610,7 @@ fn find_add_target<'a>(root: &Path, args: &'a [String]) -> Result<(PathBuf, &'a 
     }
 
     Err(format!(
-        "outside an {PROGRAM_NAME} workspace, specify the target: `{DEFAULT_ALIAS} add <project> <owner/repo>`."
+        "outside an {PROGRAM_NAME} workspace, specify the target: `{PROGRAM_NAME} add <project> <owner/repo>`."
     ))
 }
 
@@ -1211,15 +1151,6 @@ mod tests {
         assert!(validate_project_name("../elsewhere").is_err());
         assert!(validate_project_name("nested/project").is_err());
         assert!(validate_project_name("project").is_ok());
-    }
-
-    #[test]
-    fn generates_a_fish_shell_wrapper() {
-        let script = shell_init_script("fish").unwrap();
-        assert!(script.contains("function aic"));
-        assert!(script.contains("set -l __aicasa_path (command aicasa $argv --print-path)"));
-        assert!(script.contains("builtin cd -- \"$__aicasa_path\""));
-        assert!(shell_init_script("unsupported").is_err());
     }
 
     #[test]

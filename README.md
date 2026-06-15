@@ -1,6 +1,6 @@
 # aicasa
 
-`aicasa` creates named project workspaces under `~/.aicasa` and fills them with
+`casa` creates named project workspaces under `~/.aicasa` and fills them with
 Git repositories. Its output uses a pastel blue, pink, and yellow terminal
 palette when stdout is interactive.
 
@@ -13,24 +13,7 @@ cargo install --path .
 ```
 
 An executable cannot change its parent terminal's working directory by
-itself. Add the appropriate hook to your shell config so `aic new` enters the
-new workspace.
-
-For Zsh (`~/.zshrc`) or Bash (`~/.bashrc`):
-
-```sh
-eval "$(aicasa shell-init zsh)"
-```
-
-Use `bash` instead of `zsh` in the Bash hook. For Fish
-(`~/.config/fish/config.fish`):
-
-```fish
-aicasa shell-init fish | source
-```
-
-That installs the default `aic` shell wrapper, which runs `aicasa` and changes
-into new workspaces automatically.
+itself. Run `casa new`, then `cd` into the printed workspace path.
 
 ## Commands
 
@@ -38,29 +21,27 @@ Create a workspace and clone repositories using `owner/repo` GitHub
 shorthand or full Git clone URLs:
 
 ```sh
-aic new new-project paradise-runner/toast,paradise-runner/kaleidoscope
+casa new new-project paradise-runner/toast,paradise-runner/kaleidoscope
 ```
 
-Each repository cloned by `aic new` gets a local branch named after the
+Each repository cloned by `casa new` gets a local branch named after the
 workspace, created and checked out immediately after cloning.
 
-With the shell hook installed, that command ends in
-`~/.aicasa/new-project`. Without it, `aicasa` prints a `cd` command for entering the
-workspace.
+That command ends with a `cd` hint for `~/.aicasa/new-project`.
 
 Add repositories by naming a workspace, or omit its name while inside an
-existing `aicasa` workspace:
+existing workspace managed by `casa`:
 
 ```sh
-aic add new-project paradise-runner/another-repo
-aic add paradise-runner/another-repo
+casa add new-project paradise-runner/another-repo
+casa add paradise-runner/another-repo
 ```
 
 Each newly managed workspace stores repository metadata in `.aicasa.json`.
 Inspect a workspace as JSON for scripts and integrations:
 
 ```sh
-aic inspect new-project
+casa inspect new-project
 ```
 
 ```json
@@ -81,7 +62,7 @@ aic inspect new-project
 }
 ```
 
-Running `aic inspect` from within a workspace inspects the current workspace.
+Running `casa inspect` from within a workspace inspects the current workspace.
 For workspaces created before metadata support, inspection reports immediate
 child directories with `source: null` and `metadata_present: false`; adding a
 repository then persists metadata including those discovered directories.
@@ -89,8 +70,8 @@ repository then persists metadata including those discovered directories.
 List workspaces or move them to the macOS Trash:
 
 ```sh
-aic ls
-aic rm new-project
+casa ls
+casa rm new-project
 ```
 
 On non-macOS systems, `rm` uses `~/.local/share/Trash/files`. For automation
